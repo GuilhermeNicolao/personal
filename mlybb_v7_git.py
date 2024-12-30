@@ -12,7 +12,7 @@ binance_secret_key = ''
 
 
 
-# - Conectar com a Binance
+# - Conectar com a Binance !!
 exchange = ccxt.binance({
     'apiKey': binance_api_key,
     'secret': binance_secret_key,
