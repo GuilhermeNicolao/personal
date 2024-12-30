@@ -1,15 +1,18 @@
+import os
 import requests
 import time
 from datetime import datetime, timedelta
 import numpy as np
 import ccxt
+from dotenv import load_dotenv
 
-TOKEN_TELEGRAM = ""
-CHAT_ID_TELEGRAM = ""
+load_dotenv() 
 
-binance_api_key = ''
-binance_secret_key = ''
+TOKEN_TELEGRAM = os.getenv("TOKEN_TELEGRAM")
+CHAT_ID_TELEGRAM = os.getenv("CHAT_ID_TELEGRAM")
 
+binance_api_key = os.getenv("BINANCE_API_KEY")
+binance_secret_key = os.getenv("BINANCE_SECRET_KEY")
 
 
 # - Conectar com a Binance !!
@@ -450,14 +453,14 @@ def run():
             print(f"EMA7: {indicadores['EMA7']:.2f} | RSI: {indicadores['RSI']:.2f} \n")
 
             # Abrir ordem LONG: Candles Hammer / Bullish Engulfing | Preço < EMA7 | RSI < 50
-            if  (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing", "Doji"] and preco_atual < indicadores["EMA7"] and indicadores["RSI"] < 50):
+            if  (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing"] and preco_atual < indicadores["EMA7"] and indicadores["RSI"] < 50):
                 ordem_compra = abrir_ordem_compra(symbol, leverage)
                 preco_momento_compra = preco_atual
                 abertura_ordem = datetime.now()
                 ordem_aberta = True  # Marca que há uma ordem aberta
 
             #Abrir ordem SHORT: Candles Inverted Hammer / Bearish Engulfing | Preço > EMA7 | RSI > 50    
-            elif (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing", "Doji"] and preco_atual > indicadores["EMA7"] and indicadores["RSI"] > 50): 
+            elif (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing"] and preco_atual > indicadores["EMA7"] and indicadores["RSI"] > 50): 
                 ordem_venda = abrir_ordem_venda(symbol, leverage)
                 preco_momento_venda = preco_atual
                 abertura_ordem = datetime.now()
