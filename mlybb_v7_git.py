@@ -379,7 +379,7 @@ def fechar_ordem(symbol):
                 close_side = 'sell' if side == 'long' else 'buy'
 
                 # Fechar a posição
-                order = exchange.create_order(
+                exchange.create_order(
                     symbol=symbol,
                     type='market',
                     side=close_side,
@@ -389,7 +389,7 @@ def fechar_ordem(symbol):
                 # Consultar o saldo de USDT após fechar a ordem
                 saldo_usdt = obter_saldo_usdt()
 
-                mensagem_telegram = (f"Ordem de fechamento executada: {order}\n"
+                mensagem_telegram = (f"Ordem de fechamento executada.\n"
                                      f"Saldo atual de USDT: {saldo_usdt:.2f} USDT")
                 enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
                 return
@@ -417,7 +417,7 @@ def run():
 
     # Exibir as informações coletadas
     print(f"\nAtivo selecionado: {symbol}")
-    print(f"Valor de investimento: {saldo_usdt} USDT")
+    print(f"Valor de investimento: {saldo_usdt:.2f} USDT")
     print(f"Alavancagem: {leverage}x")
 
 
@@ -485,16 +485,18 @@ def run():
 
             # Fechar ordem LONG: Preço atual > Preço registrado na ordem de compra e últimos 2 candles Bullish Engulfing
             if ordem_compra is not None:
-                if preco_atual < preco_momento_compra and ultimos_candle_tipos == ["Bearish Engulfing", "Bearish Engulfing"]:
-                    mensagem_telegram = "Condição de COMPRA por BEARISH ENGULFING atendida"
+                if preco_atual > preco_momento_compra and ultimos_candle_tipos == ["Bullish Engulfing", "Bullish Engulfing"]:
+                    mensagem_telegram = "Condição de VENDA por BULLISH ENGULFING atendida"
                     fechar_ordem(symbol)
                     ordem_compra = None
+                    ordem_aberta = False
                     enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
                 if (datetime.now() - abertura_ordem) >= timedelta(minutes=30):
-                    mensagem_telegram = "!! Fechando ordem de VENDA imediatamente devido ao tempo."
+                    mensagem_telegram = "!! Fechando ordem de COMPRA imediatamente devido ao tempo."
                     fechar_ordem(symbol)
                     ordem_compra = None
+                    ordem_aberta = False
                     enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
 
@@ -504,12 +506,14 @@ def run():
                     mensagem_telegram = "Condição de COMPRA por BEARISH ENGULFING atendida"
                     fechar_ordem(symbol)
                     ordem_venda = None
+                    ordem_aberta = False
                     enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
                 if (datetime.now() - abertura_ordem) >= timedelta(minutes=30):
                     mensagem_telegram = "!! Fechando ordem de VENDA imediatamente devido ao tempo."
                     fechar_ordem(symbol)
                     ordem_venda = None
+                    ordem_aberta = False
                     enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
                             
 
