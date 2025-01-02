@@ -413,7 +413,7 @@ def run():
     print(f"Saldo atual em USDT: {saldo_usdt:.2f}")
 
     symbol = 'BTC/USDT'
-    leverage = 5
+    leverage = 10
 
     # Exibir as informações coletadas
     print(f"\nAtivo selecionado: {symbol}")
@@ -443,8 +443,8 @@ def run():
 
         # Atualiza a lista com os últimos dois tipos de candle
         ultimos_candle_tipos.append(candle_tipo)
-        if len(ultimos_candle_tipos) > 2:
-            ultimos_candle_tipos.pop(0)  # Remove o mais antigo, mantendo o tamanho da lista em 2
+        if len(ultimos_candle_tipos) > 3:
+            ultimos_candle_tipos.pop(0)  # Remove o mais antigo, mantendo o tamanho da lista em 3
 
 
         # Calcula e exibe os valores de EMA7 e RSI
@@ -456,14 +456,12 @@ def run():
             if  (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing"] and preco_atual < indicadores["EMA7"] and indicadores["RSI"] < 50):
                 ordem_compra = abrir_ordem_compra(symbol, leverage)
                 preco_momento_compra = preco_atual
-                abertura_ordem = datetime.now()
                 ordem_aberta = True  # Marca que há uma ordem aberta
 
             #Abrir ordem SHORT: Candles Inverted Hammer / Bearish Engulfing | Preço > EMA7 | RSI > 50    
             elif (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing"] and preco_atual > indicadores["EMA7"] and indicadores["RSI"] > 50): 
                 ordem_venda = abrir_ordem_venda(symbol, leverage)
                 preco_momento_venda = preco_atual
-                abertura_ordem = datetime.now()
                 ordem_aberta = True  # Marca que há uma ordem aberta
 
 
@@ -483,38 +481,23 @@ def run():
 
             
 
-            # Fechar ordem LONG: Preço atual > Preço registrado na ordem de compra e últimos 2 candles Bullish Engulfing
+
             if ordem_compra is not None:
-                if preco_atual > preco_momento_compra and ultimos_candle_tipos == ["Bullish Engulfing", "Bullish Engulfing"]:
+                if preco_atual > preco_momento_compra and ultimos_candle_tipos == ["Bullish Engulfing", "Bullish Engulfing", "Bullish Engulfing"]:
                     mensagem_telegram = "Condição de VENDA por BULLISH ENGULFING atendida"
                     fechar_ordem(symbol)
                     ordem_compra = None
                     ordem_aberta = False
                     enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
-                if (datetime.now() - abertura_ordem) >= timedelta(minutes=30):
-                    mensagem_telegram = "!! Fechando ordem de COMPRA imediatamente devido ao tempo."
-                    fechar_ordem(symbol)
-                    ordem_compra = None
-                    ordem_aberta = False
-                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-
-
-            # Fechando a ordem se já chegou em 20 minutos
             if ordem_venda is not None:
-                if preco_atual < preco_momento_venda and ultimos_candle_tipos == ["Bearish Engulfing", "Bearish Engulfing"]:
+                if preco_atual < preco_momento_venda and ultimos_candle_tipos == ["Bearish Engulfing", "Bearish Engulfing", "Bearish Engulfing"]:
                     mensagem_telegram = "Condição de COMPRA por BEARISH ENGULFING atendida"
                     fechar_ordem(symbol)
                     ordem_venda = None
                     ordem_aberta = False
                     enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
-                if (datetime.now() - abertura_ordem) >= timedelta(minutes=30):
-                    mensagem_telegram = "!! Fechando ordem de VENDA imediatamente devido ao tempo."
-                    fechar_ordem(symbol)
-                    ordem_venda = None
-                    ordem_aberta = False
-                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
                             
 
 
