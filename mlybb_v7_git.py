@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta
 import numpy as np
 import ccxt
+import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv() 
@@ -161,13 +162,102 @@ def capturar_identificar_candle(symbol="BTCUSDT", interval="1m"):
     return None
 
 
+# - Cálculo ADX
+def calcular_adx(symbol="BTCUSDT", interval="1m", period=14):
+    # Captura os dados históricos usando a função 'capturar_preco_binance' que você já tem
+    data = capturar_preco_binance(symbol=symbol, interval=interval, limit=period + 1)
+
+    if not data:
+        print("Não foi possível obter os dados para o cálculo do ADX.")
+        return None
+
+    # Extrair as altas, baixas e fechamentos dos dados
+    highs = np.array([float(candle[2]) for candle in data])
+    lows = np.array([float(candle[3]) for candle in data])
+    closes = np.array([float(candle[4]) for candle in data])
+    
+    # Calcular as diferenças das altas e baixas
+    high_diff = highs[1:] - highs[:-1]
+    low_diff = lows[:-1] - lows[1:]
+    
+    # Calculando o True Range
+    tr = np.maximum(highs[1:] - lows[1:], np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1]))
+    
+    # Calculando o Direcional Movimento (+DM e -DM)
+    plus_dm = np.where(high_diff > low_diff, high_diff, 0)
+    minus_dm = np.where(low_diff > high_diff, low_diff, 0)
+    
+    # Suavizando o True Range, +DM, e -DM
+    tr_smooth = pd.Series(tr).rolling(window=period).sum().iloc[-1]
+    plus_dm_smooth = pd.Series(plus_dm).rolling(window=period).sum().iloc[-1]
+    minus_dm_smooth = pd.Series(minus_dm).rolling(window=period).sum().iloc[-1]
+    
+    # Calculando os Índices Direcionais (+DI e -DI)
+    plus_di = (plus_dm_smooth / tr_smooth) * 100
+    minus_di = (minus_dm_smooth / tr_smooth) * 100
+    
+    # Calculando o ADX (média suavizada da diferença entre +DI e -DI)
+    adx = np.abs(plus_di - minus_di)
+    adx_smooth = pd.Series(adx).rolling(window=period).mean().iloc[-1]
+    
+    return adx_smooth, plus_di, minus_di
+
+
+# - Cálculo ATR (Average True Range)
+def calcular_atr(symbol="BTCUSDT", interval="1m", period=14):
+    # Captura os preços da Binance
+    data = capturar_preco_binance(symbol=symbol, interval=interval, limit=period + 1)
+    
+    if not data:
+        print("Não foi possível obter os dados para cálculo do ATR.")
+        return None
+    
+    # Extrair valores de alta, baixa e fechamento
+    highs = [float(candle[2]) for candle in data]
+    lows = [float(candle[3]) for candle in data]
+    closes = [float(candle[4]) for candle in data[:-1]]  # Exclui o último fechamento, pois ele será usado para o próximo True Range
+    
+    # Calculando o True Range (TR)
+    true_ranges = []
+    for i in range(1, len(data)):
+        high = highs[i]
+        low = lows[i]
+        prev_close = closes[i - 1]
+        
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        true_ranges.append(tr)
+    
+    # Calculando o ATR como a média dos True Ranges
+    atr = np.mean(true_ranges)
+    return atr
+
+
 # - Cálculo EMA
-def calcular_ema(prices, period):
+def calcular_ema7(prices, period):
     # Calculando a EMA com maior precisão
     k = 2 / (period + 1)
     
     # Usando o valor inicial da EMA como o primeiro preço (ou a média dos primeiros preços)
     ema = [np.mean(prices[:period])]  # Primeira EMA é a média dos primeiros 'period' preços
+
+    # Calculando os valores subsequentes da EMA
+    for price in prices[period:]:
+        # Fórmula da EMA: EMA = (Preço atual - EMA anterior) * k + EMA anterior
+        ema.append((price - ema[-1]) * k + ema[-1])
+
+    return ema[-1]  # Retorna o último valor da EMA (mais recente)
+
+
+# - Cálculo EMA50
+def calcular_ema50(prices, period):
+    # Período da EMA50
+    period = 50
+    
+    # Calculando o multiplicador
+    k = 2 / (period + 1)
+    
+    # Usando o valor inicial da EMA como a média dos primeiros 'period' preços
+    ema = [np.mean(prices[:period])]  # Primeira EMA é a média dos primeiros 50 preços
 
     # Calculando os valores subsequentes da EMA
     for price in prices[period:]:
@@ -231,7 +321,7 @@ def calcular_rsi(prices, period=14):
     return rsi
 
 
-# - Aplica o cálculo de EMA7 e RSI no preço em M1
+# - Aplica o cálculo de EMA50 e RSI no preço em M1
 def calcular_ema_rsi(symbol="BTCUSDT", interval="1m", limit=100):
     # Captura os candles (dados de preços) para o período solicitado
     candles = capturar_preco_binance(symbol=symbol, interval=interval, limit=limit)
@@ -242,13 +332,16 @@ def calcular_ema_rsi(symbol="BTCUSDT", interval="1m", limit=100):
     # Extrair os preços de fechamento dos candles
     close_prices = [float(candle[4]) for candle in candles]
     
-    # Calcular EMA7
-    ema7 = calcular_ema(close_prices, 7)
+    # Calcular EMA50 (50 períodos)
+    EMA50 = calcular_ema7(close_prices, 50)
+    
+    # Calcular EMA7 (7 períodos)
+    EMA7 = calcular_ema7(close_prices, 7)
     
     # Calcular RSI com 14 períodos
     rsi = calcular_rsi(close_prices, 14)
     
-    return {"EMA7": ema7, "RSI": rsi}
+    return {"EMA50": EMA50, "EMA7": EMA7, "RSI": rsi}
    
 
 # - Função para abrir uma ordem de COMPRA
@@ -410,8 +503,6 @@ def run():
         print("Erro ao obter o saldo de USDT.")
         return
 
-    print(f"Saldo atual em USDT: {saldo_usdt:.2f}")
-
     symbol = 'BTC/USDT'
     leverage = 10
 
@@ -426,7 +517,10 @@ def run():
     preco_momento_compra = None
     preco_momento_venda = None
     ultimos_candle_tipos = []
-    ordem_aberta = False  # Flag para verificar se há uma ordem aberta
+    ordem_aberta = False 
+    take_profit_atr = None
+    stop_loss_atr = None
+    atr_atual = None
 
 
     while True:
@@ -443,28 +537,73 @@ def run():
 
         # Atualiza a lista com os últimos dois tipos de candle
         ultimos_candle_tipos.append(candle_tipo)
-        if len(ultimos_candle_tipos) > 3:
-            ultimos_candle_tipos.pop(0)  # Remove o mais antigo, mantendo o tamanho da lista em 3
+        if len(ultimos_candle_tipos) > 2:
+            ultimos_candle_tipos.pop(0)  # Remove o mais antigo, mantendo o tamanho da lista em 2
 
 
-        # Calcula e exibe os valores de EMA7 e RSI
+        # Calcula e exibe os valores de EMA7, EMA50 e RSI
         indicadores = calcular_ema_rsi(symbol="BTCUSDT", interval="1m")
-        if indicadores is not None and "EMA7" in indicadores and "RSI" in indicadores:
-            print(f"EMA7: {indicadores['EMA7']:.2f} | RSI: {indicadores['RSI']:.2f} \n")
+        if indicadores is not None and "EMA7" in indicadores and "EMA50" in indicadores and "RSI" in indicadores:
+            print(f"EMA50: {indicadores['EMA50']:.2f} | RSI: {indicadores['RSI']:.2f} | EMA7: {indicadores['EMA7']:.2f}")
 
-            # Abrir ordem LONG: Candles Hammer / Bullish Engulfing | Preço < EMA7 | RSI < 50
-            if  (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing"] and preco_atual < indicadores["EMA7"] and indicadores["RSI"] < 50):
+
+        # Calcula o ADX 
+        adx, plus_di, minus_di = calcular_adx(symbol="BTCUSDT", interval="1m", period=14)
+        if adx is not None:
+            print(f"ADX: {adx:.2f}")
+
+
+        #Calcular ATR
+        atr = calcular_atr(symbol="BTCUSDT", interval="1m", period=14)
+        if atr is not None:
+            print(f"ATR: {atr:.2f}\n")
+
+        # ---------------------------------------------------------------------------------------------- #
+        
+            # Abrir ordem LONG
+            if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing"] and 
+            preco_atual < indicadores["EMA7"] and indicadores["EMA7"] > indicadores["EMA50"] and indicadores["RSI"] > 30 and adx > 27 and plus_di > minus_di):
                 ordem_compra = abrir_ordem_compra(symbol, leverage)
                 preco_momento_compra = preco_atual
-                ordem_aberta = True  # Marca que há uma ordem aberta
+                ordem_aberta = "LONG"  
 
-            #Abrir ordem SHORT: Candles Inverted Hammer / Bearish Engulfing | Preço > EMA7 | RSI > 50    
-            elif (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing"] and preco_atual > indicadores["EMA7"] and indicadores["RSI"] > 50): 
+            #StopLoss ordem LONG
+            if ordem_aberta == "LONG":
+                atr_atual = calcular_atr(symbol=symbol, interval="1m", period=14)
+                if atr_atual is not None:
+                    stop_loss_atr = (atr_atual * 2)
+                    if preco_atual <= (preco_momento_compra - stop_loss_atr): 
+                        mensagem_telegram = "STOPLOSS ACIONADO!"
+                        fechar_ordem(symbol)  
+                        ordem_aberta = None
+                        atr_atual = None  
+                        stop_loss_atr = None
+                        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+
+        # ---------------------------------------------------------------------------------------------- #
+
+            #Abrir ordem SHORT
+            if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing"] and 
+            preco_atual > indicadores["EM7"] and indicadores["EMA7"] < indicadores["EMA50"] and indicadores["RSI"] < 70 and adx > 27 and minus_di > plus_di): 
                 ordem_venda = abrir_ordem_venda(symbol, leverage)
                 preco_momento_venda = preco_atual
-                ordem_aberta = True  # Marca que há uma ordem aberta
+                ordem_aberta = "SHORT"  
+
+            #StopLoss ordem SHORT
+            if ordem_aberta == "SHORT":
+                atr_atual = calcular_atr(symbol=symbol, interval="1m", period=14)
+                if atr_atual is not None:
+                    stop_loss_atr = (atr_atual * 2)
+                    if preco_atual >= (preco_momento_compra - stop_loss_atr): 
+                        mensagem_telegram = "STOPLOSS ACIONADO!"
+                        fechar_ordem(symbol)  
+                        ordem_aberta = None 
+                        atr_atual = None   
+                        stop_loss_atr = None
+                        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
 
+        # ---------------------------------------------------------------------------------------------- #
 
             # Verifica os últimos dois candles para condição de compra/venda
             tipos_de_candles = []
@@ -480,23 +619,35 @@ def run():
                     tipos_de_candles.append(identificar_candle(ohlc))
 
             
-
-
+        # ---------------------------------------------------------------------------------------------- #
+            #TakeProfit LONG
             if ordem_compra is not None:
-                if preco_atual > preco_momento_compra and ultimos_candle_tipos == ["Bullish Engulfing", "Bullish Engulfing", "Bullish Engulfing"]:
-                    mensagem_telegram = "Condição de VENDA por BULLISH ENGULFING atendida"
-                    fechar_ordem(symbol)
-                    ordem_compra = None
-                    ordem_aberta = False
-                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                atr_atual = calcular_atr(symbol=symbol, interval="1m", period=14)
+                if atr_atual is not None:
+                    take_profit_atr = (atr_atual * 3)
+                    if (preco_atual >= (preco_momento_compra + take_profit_atr)) and ultimos_candle_tipos == ["Bullish Engulfing", "Bullish Engulfing"]:
+                        mensagem_telegram = "Condição de VENDA por BULLISH ENGULFING atendida"
+                        fechar_ordem(symbol)
+                        ordem_compra = None
+                        ordem_aberta = False
+                        atr_atual = None
+                        take_profit_atr = None
+                        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
+        # ---------------------------------------------------------------------------------------------- #
+            #TakeProfit SHORT
             if ordem_venda is not None:
-                if preco_atual < preco_momento_venda and ultimos_candle_tipos == ["Bearish Engulfing", "Bearish Engulfing", "Bearish Engulfing"]:
-                    mensagem_telegram = "Condição de COMPRA por BEARISH ENGULFING atendida"
-                    fechar_ordem(symbol)
-                    ordem_venda = None
-                    ordem_aberta = False
-                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                atr_atual = calcular_atr(symbol=symbol, interval="1m", period=14)
+                if atr_atual is not None:
+                    take_profit_atr = (atr_atual * 3)
+                    if preco_atual <= (preco_momento_venda - take_profit_atr) and ultimos_candle_tipos == ["Bearish Engulfing", "Bearish Engulfing"]:
+                        mensagem_telegram = "Condição de COMPRA por BEARISH ENGULFING atendida"
+                        fechar_ordem(symbol)
+                        ordem_venda = None
+                        ordem_aberta = False
+                        atr_atual = None
+                        take_profit_atr = None
+                        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
                             
 
