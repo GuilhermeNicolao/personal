@@ -72,7 +72,7 @@ def enviar_mensagem_telegram(token, chat_id, mensagem):
 
 
 # - Capturar o preço da cripto via API (Binance)
-def capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=1):
+def capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=15):
     
     base_url = "https://api.binance.com/api/v3/klines"
     params = {
@@ -163,73 +163,59 @@ def capturar_identificar_candle(symbol="BTCUSDT", interval="1m"):
 
 
 # - Cálculo ADX
-def calcular_adx(symbol="BTCUSDT", interval="1m", period=14):
-    # Captura os dados históricos usando a função 'capturar_preco_binance' que você já tem
-    data = capturar_preco_binance(symbol=symbol, interval=interval, limit=period + 1)
+def calcular_adx(data, period=14):
+    high = np.array([float(d[2]) for d in data])  # Preço máximo
+    low = np.array([float(d[3]) for d in data])   # Preço mínimo
+    close = np.array([float(d[4]) for d in data])  # Preço de fechamento
 
-    if not data:
-        print("Não foi possível obter os dados para o cálculo do ADX.")
-        return None
+    # Calculando o movimento direcional (DM)
+    plus_di = high[1:] - high[:-1]
+    minus_di = low[:-1] - low[1:]
 
-    # Extrair as altas, baixas e fechamentos dos dados
-    highs = np.array([float(candle[2]) for candle in data])
-    lows = np.array([float(candle[3]) for candle in data])
-    closes = np.array([float(candle[4]) for candle in data])
-    
-    # Calcular as diferenças das altas e baixas
-    high_diff = highs[1:] - highs[:-1]
-    low_diff = lows[:-1] - lows[1:]
-    
-    # Calculando o True Range
-    tr = np.maximum(highs[1:] - lows[1:], np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1]))
-    
-    # Calculando o Direcional Movimento (+DM e -DM)
-    plus_dm = np.where(high_diff > low_diff, high_diff, 0)
-    minus_dm = np.where(low_diff > high_diff, low_diff, 0)
-    
-    # Suavizando o True Range, +DM, e -DM
-    tr_smooth = pd.Series(tr).rolling(window=period).sum().iloc[-1]
-    plus_dm_smooth = pd.Series(plus_dm).rolling(window=period).sum().iloc[-1]
-    minus_dm_smooth = pd.Series(minus_dm).rolling(window=period).sum().iloc[-1]
-    
-    # Calculando os Índices Direcionais (+DI e -DI)
-    plus_di = (plus_dm_smooth / tr_smooth) * 100
-    minus_di = (minus_dm_smooth / tr_smooth) * 100
-    
-    # Calculando o ADX (média suavizada da diferença entre +DI e -DI)
-    adx = np.abs(plus_di - minus_di)
-    adx_smooth = pd.Series(adx).rolling(window=period).mean().iloc[-1]
-    
-    return adx_smooth, plus_di, minus_di
+    # Condição para considerar DM positivo e negativo
+    plus_di[plus_di < 0] = 0
+    minus_di[minus_di < 0] = 0
+
+    # Calculando o True Range (TR) para o ADX
+    tr1 = high[1:] - low[1:]
+    tr2 = np.abs(high[1:] - close[:-1])
+    tr3 = np.abs(low[1:] - close[:-1])
+
+    tr = np.maximum(np.maximum(tr1, tr2), tr3)
+
+    # Suavização de DM e TR
+    plus_di_smooth = pd.Series(plus_di).rolling(window=period).sum().values
+    minus_di_smooth = pd.Series(minus_di).rolling(window=period).sum().values
+    tr_smooth = pd.Series(tr).rolling(window=period).sum().values
+
+    # Calculando os índices de direção (+DI e -DI)
+    plus_di = 100 * (plus_di_smooth / tr_smooth)
+    minus_di = 100 * (minus_di_smooth / tr_smooth)
+
+    # Calculando o ADX (média móvel do índice de direção)
+    dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di)
+    adx = pd.Series(dx).rolling(window=period).mean().values
+
+    # Retornando o ADX e os valores de +DM e -DM
+    return adx[-1], plus_di, minus_di
 
 
 # - Cálculo ATR (Average True Range)
-def calcular_atr(symbol="BTCUSDT", interval="1m", period=14):
-    # Captura os preços da Binance
-    data = capturar_preco_binance(symbol=symbol, interval=interval, limit=period + 1)
-    
-    if not data:
-        print("Não foi possível obter os dados para cálculo do ATR.")
-        return None
-    
-    # Extrair valores de alta, baixa e fechamento
-    highs = [float(candle[2]) for candle in data]
-    lows = [float(candle[3]) for candle in data]
-    closes = [float(candle[4]) for candle in data[:-1]]  # Exclui o último fechamento, pois ele será usado para o próximo True Range
-    
+def calcular_atr(data, period=14):
+    high = np.array([float(d[2]) for d in data])  # Preço máximo
+    low = np.array([float(d[3]) for d in data])   # Preço mínimo
+    close = np.array([float(d[4]) for d in data])  # Preço de fechamento
+
     # Calculando o True Range (TR)
-    true_ranges = []
-    for i in range(1, len(data)):
-        high = highs[i]
-        low = lows[i]
-        prev_close = closes[i - 1]
-        
-        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-        true_ranges.append(tr)
+    tr1 = high[1:] - low[1:]
+    tr2 = np.abs(high[1:] - close[:-1])
+    tr3 = np.abs(low[1:] - close[:-1])
     
-    # Calculando o ATR como a média dos True Ranges
-    atr = np.mean(true_ranges)
-    return atr
+    tr = np.maximum(np.maximum(tr1, tr2), tr3)
+
+    # Calculando o ATR (média móvel do TR)
+    atr = pd.Series(tr).rolling(window=period).mean().values
+    return atr[-1]  # Retorna o ATR mais recente
 
 
 # - Cálculo EMA
@@ -511,7 +497,9 @@ def run():
     print(f"Valor de investimento: {saldo_usdt:.2f} USDT")
     print(f"Alavancagem: {leverage}x")
 
-
+    adx = None
+    plus_di = None
+    minus_di = None
     ordem_compra = None
     ordem_venda = None
     preco_momento_compra = None
@@ -546,16 +534,16 @@ def run():
         if indicadores is not None and "EMA7" in indicadores and "EMA50" in indicadores and "RSI" in indicadores:
             print(f"EMA50: {indicadores['EMA50']:.2f} | RSI: {indicadores['RSI']:.2f} | EMA7: {indicadores['EMA7']:.2f}")
 
+        dados = capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=30)
 
-        # Calcula o ADX 
-        adx, plus_di, minus_di = calcular_adx(symbol="BTCUSDT", interval="1m", period=14)
-        if adx is not None:
+        # Calcular ADX
+        if dados:
+            adx, plus_di, minus_di = calcular_adx(dados, period=14)
             print(f"ADX: {adx:.2f}")
 
-
-        #Calcular ATR
-        atr = calcular_atr(symbol="BTCUSDT", interval="1m", period=14)
-        if atr is not None:
+        # Calcular ATR
+        if dados:
+            atr = calcular_atr(dados, period=14)
             print(f"ATR: {atr:.2f}\n")
 
         # ---------------------------------------------------------------------------------------------- #
@@ -584,7 +572,7 @@ def run():
 
             #Abrir ordem SHORT
             if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing"] and 
-            preco_atual > indicadores["EM7"] and indicadores["EMA7"] < indicadores["EMA50"] and indicadores["RSI"] < 70 and adx > 27 and minus_di > plus_di): 
+            preco_atual > indicadores["EMA7"] and indicadores["EMA7"] < indicadores["EMA50"] and indicadores["RSI"] < 70 and adx > 27 and minus_di > plus_di): 
                 ordem_venda = abrir_ordem_venda(symbol, leverage)
                 preco_momento_venda = preco_atual
                 ordem_aberta = "SHORT"  
