@@ -3,55 +3,15 @@ import requests
 import time
 from datetime import datetime, timedelta
 import numpy as np
-import ccxt
 import pandas as pd
 from dotenv import load_dotenv
+import backtrader
 
 load_dotenv() 
 
 TOKEN_TELEGRAM = os.getenv("TOKEN_TELEGRAM")
 CHAT_ID_TELEGRAM = os.getenv("CHAT_ID_TELEGRAM")
 
-binance_api_key = os.getenv("BINANCE_API_KEY")
-binance_secret_key = os.getenv("BINANCE_SECRET_KEY")
-
-
-# - Conectar com a Binance
-exchange = ccxt.binance({
-    'apiKey': binance_api_key,
-    'secret': binance_secret_key,
-    'enableRateLimit': True,  # Para evitar erro de limite de requisições
-})
-
-
-# - Especificando o mercado de futuros
-exchange.options['defaultType'] = 'future'
-
-
-# - Função para obter o saldo no mercado de futuros USDT
-def obter_saldo_usdt():
-    try:
-        balance = exchange.fetch_balance({'type': 'future'})
-
-        # Verificar o saldo em USDT no mercado de futuros
-        usdt_balance = balance.get('total', {}).get('USDT', 0)
-        
-        return usdt_balance
-    except ccxt.BaseError as e:
-        print(f"Erro ao acessar a API de Futuros: {e}")
-        return None
-
-
-# - Função para obter as regras de quantidade mínima para operar
-def obter_quantia_minima(symbol):
-
-    try:
-        market = exchange.market(symbol)
-        return market['limits']['amount']['min']
-    except Exception as e:
-        print(f"Erro ao obter limites para operar {symbol}: {e}")
-        return None
-    
 
 # - Conexão com a API do Telegram, usando Token e ID do meu bot
 def enviar_mensagem_telegram(token, chat_id, mensagem):
@@ -69,7 +29,7 @@ def enviar_mensagem_telegram(token, chat_id, mensagem):
     except requests.exceptions.RequestException as e:
         print(f"Erro ao enviar mensagem para o Telegram: {e}")
         return {"ok": False, "error": str(e)}
-
+    
 
 # - Capturar o preço da cripto via API (Binance)
 def capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=15):
@@ -89,7 +49,7 @@ def capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=15):
     except requests.exceptions.RequestException as e:
         print(f"Erro na requisição à Binance: {e}")
         return None
-
+    
 
 # - Informa o preço em M1 no segundo 00:00:58    
 def precos_zerosegundo(symbol="BTCUSDT", interval="1m"):   
@@ -198,7 +158,7 @@ def calcular_adx(data, period=14):
     adx = pd.Series(dx).rolling(window=period).mean().values
 
     # Retornando o ADX e os valores de +DM e -DM
-    return adx[-1], plus_di, minus_di
+    return adx[-1], plus_di[-1], minus_di[-1]
 
 
 # - Cálculo ATR (Average True Range)
@@ -331,172 +291,96 @@ def calcular_ema_rsi(symbol="BTCUSDT", interval="1m", limit=100):
     return {"EMA50": EMA50, "EMA7": EMA7, "RSI": rsi}
    
 
-# - Função para abrir uma ordem de COMPRA
-def abrir_ordem_compra(symbol, leverage, order_type='market'):
-    try:
-        # Consultar o saldo de USDT no mercado de futuros
-        saldo_usdt = obter_saldo_usdt()
+# - Abrir ordem LONG
+def abrir_ordem_compra(preco_atual, saldo_investido):
 
-        if saldo_usdt is None or saldo_usdt == 0:
-            mensagem_telegram = "Saldo insuficiente para abrir uma ordem."
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
+    quantidade = saldo_investido / preco_atual
 
-        # Obter o preço atual do ativo 
-        ticker = exchange.fetch_ticker(symbol)
-        current_price = ticker['last']  
+    # Armazena os detalhes da ordem de compra
+    ordem = {
+        "preco_compra": preco_atual,
+        "quantidade": quantidade,
+        "valor_investido": saldo_investido,
+        "timestamp": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    }                                       
 
-        # Obter a quantidade mínima permitida para o par
-        min_amount = obter_quantia_minima(symbol)
-        if min_amount is None:
-            mensagem_telegram = f"Não foi possível obter o limite mínimo para {symbol}."
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
+    # Cria a mensagem de log
+    mensagem_telegram = (f"+ Compra realizada! {quantidade:.4f} a ${preco_atual:.2f}\n"
+                         f"+ Horário da abertura da ordem: {ordem['timestamp']}")                                                                                            
+    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
-        # Calcular a quantidade de contratos com base no valor investido e alavancagem
-        leveraged_investment = saldo_usdt * leverage  
-        amount_to_buy = leveraged_investment / current_price
+    return ordem
 
-        # Verificar se a quantidade calculada é menor que a quantidade mínima
-        if amount_to_buy < min_amount:
-            mensagem_telegram = (f"A quantidade calculada ({amount_to_buy}) é menor que a quantidade mínima permitida ({min_amount}).\n"
-                            f"Você precisa investir pelo menos {min_amount * current_price / leverage:.2f} USDT com alavancagem de {leverage}.")
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
 
-        # Verificar se o valor nominal (notional value) atende ao mínimo de 100 USDT
-        notional_value = amount_to_buy * current_price
-        if notional_value < 100:
-            mensagem_telegram = (f"O valor nominal da ordem ({notional_value}) é menor que o limite mínimo de 100 USDT.\n"
-                            f"Você precisa investir pelo menos {100 / leverage:.2f} USDT com alavancagem de {leverage}.")
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
+# - Abrir ordem SHORT
+def abrir_ordem_venda(preco_atual, saldo_investido):
 
-        # Criar a ordem de compra
-        if order_type == 'market':
-            # Ordem de mercado
-            order = exchange.create_order(symbol, order_type, 'buy', amount_to_buy, None, {'leverage': leverage})
+    quantidade = saldo_investido / preco_atual
 
-        mensagem_telegram = f"Ordem de compra executada!"
-        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-        return order
-    
-    except ccxt.BaseError as e:
-        mensagem_telegram = f"Erro ao abrir ordem de compra: {e}"
-        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-        
+    # Armazena os detalhes da ordem de venda
+    ordem = {
+        "preco_venda": preco_atual,
+        "quantidade": quantidade,
+        "valor_investido": saldo_investido,
+        "timestamp": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    }                                       
 
-# - Função para abrir uma ordem de VENDA
-def abrir_ordem_venda(symbol, leverage, order_type='market'):
-    try:
-        # Consultar o saldo de USDT no mercado de futuros
-        saldo_usdt = obter_saldo_usdt()
+    # Cria a mensagem de log
+    mensagem_telegram = (f"- Venda realizada! {quantidade:.4f} a ${preco_atual:.2f}\n"
+                         f"- Horário da abertura da ordem: {ordem['timestamp']}")                                                                                            
+    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
-        if saldo_usdt is None or saldo_usdt == 0:
-            mensagem_telegram = "Saldo insuficiente para abrir uma ordem."
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
+    return ordem
 
-        # Obter o preço atual do ativo 
-        ticker = exchange.fetch_ticker(symbol)
-        current_price = ticker['last']  
 
-        # Obter a quantidade mínima permitida para o par
-        min_amount = obter_quantia_minima(symbol)
-        if min_amount is None:
-            mensagem_telegram = f"Não foi possível obter o limite mínimo para {symbol}."
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
-
-        # Calcular a quantidade de contratos com base no valor investido e alavancagem
-        leveraged_investment = saldo_usdt * leverage  
-        amount_to_sell = leveraged_investment / current_price
-
-        # Verificar se a quantidade calculada é menor que a quantidade mínima
-        if amount_to_sell < min_amount:
-            mensagem_telegram = (f"A quantidade calculada ({amount_to_sell}) é menor que a quantidade mínima permitida ({min_amount}).\n"
-                            f"Você precisa investir pelo menos {min_amount * current_price / leverage:.2f} USDT com alavancagem de {leverage}.")
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
-
-        # Verificar se o valor nominal (notional value) atende ao mínimo de 100 USDT
-        notional_value = amount_to_sell * current_price
-        if notional_value < 100:
-            mensagem_telegram = (f"O valor nominal da ordem ({notional_value}) é menor que o limite mínimo de 100 USDT.\n"
-                            f"Você precisa investir pelo menos {100 / leverage:.2f} USDT com alavancagem de {leverage}.")
-            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-            return
-
-        # Criar a ordem de compra
-        if order_type == 'market':
-            # Ordem de mercado
-            order = exchange.create_order(symbol, order_type, 'sell', amount_to_sell, None, {'leverage': leverage})
-
-        mensagem_telegram = f"Ordem de venda executada!"
-        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-        return order
-    
-    except ccxt.BaseError as e:
-        mensagem_telegram = f"Erro ao abrir ordem de compra: {e}"
-        enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-
-    
 # - Função para listar e fechar posições abertas
-def fechar_ordem(symbol):
-    try:
-        # Obter todas as posições abertas
-        positions = exchange.fetch_positions()
+def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage):
 
-        # Corrigir formato do símbolo para corresponder ao retorno da API
-        formatted_symbol = symbol + ":USDT"
+    if ordem_aberta == "LONG" and not None:
 
-        for position in positions:
-            if position['symbol'] == formatted_symbol and float(position['contracts']) > 0:
-                contracts = float(position['contracts'])  # Quantidade de contratos abertos
-                side = position['side']  # 'long' ou 'short'
+        quantidade = ordem_compra["quantidade"]
+        valor_atual = quantidade * preco_atual
 
-                # Determinar o lado oposto para fechar a posição
-                close_side = 'sell' if side == 'long' else 'buy'
+        valor_investido = ordem_compra["valor_investido"]
+        lucro_prejuizo = valor_atual - valor_investido
 
-                # Fechar a posição
-                exchange.create_order(
-                    symbol=symbol,
-                    type='market',
-                    side=close_side,
-                    amount=contracts
-                )
+        saldo_usdt += lucro_prejuizo
 
-                # Consultar o saldo de USDT após fechar a ordem
-                saldo_usdt = obter_saldo_usdt()
+        saldo_investido = saldo_usdt * leverage
 
-                mensagem_telegram = (f"Fechamento de ordem executada.\n"
-                                     f"Saldo atual de USDT: {saldo_usdt:.2f} USDT")
-                enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-                return
-
-        mensagem_telegram = f"Não há posições abertas para {symbol}."
+        mensagem_telegram = (f"ORDEM FECHADA! \n"
+                             f"Saldo atual em USDT: {saldo_usdt:.2f}"
+                             f"Lucro/Prejuízo: {lucro_prejuizo:.2f}")
         enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-    except ccxt.BaseError as e:
-        mensagem_telegram = f"Erro ao fechar posições abertas: {e}"
+        return saldo_investido
+        
+    if ordem_aberta == "SHORT" and not None:
+
+        quantidade = ordem_venda["quantidade"]
+        valor_atual = quantidade * preco_atual
+
+        valor_investido = ordem_venda["valor_investido"]
+        lucro_prejuizo = valor_investido - valor_atual
+        saldo_usdt += lucro_prejuizo
+
+        saldo_investido = saldo_usdt * leverage
+
+        mensagem_telegram = (f"ORDEM FECHADA! \n"
+                             f"Saldo atual em USDT: {saldo_usdt:.2f}"
+                             f"Lucro/Prejuízo: {lucro_prejuizo:.2f}")
         enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+        return saldo_investido
+    
 
 
 # - run()
 def run():
 
-    # Imprimir saldo atual de USDT
-    saldo_usdt = obter_saldo_usdt()
-    if saldo_usdt is None:
-        print("Erro ao obter o saldo de USDT.")
-        return
-
-    symbol = 'BTC/USDT'
-    leverage = 5
-
-    # Exibir as informações coletadas
-    print(f"\nAtivo selecionado: {symbol}")
-    print(f"Valor de investimento: {saldo_usdt:.2f} USDT")
-    print(f"Alavancagem: {leverage}x")
+    saldo_usdt = float(input("Informe o saldo a ser investido: "))
+    leverage = 10
+    saldo_investido = saldo_usdt * leverage
+    print(f"Saldo inicial com leverage aplicado: ${saldo_investido:.2f} USD")
+    print("Iniciando ...\n")
 
     adx = None
     plus_di = None
@@ -548,11 +432,11 @@ def run():
             print(f"ATR: {atr:.2f}\n")
 
         # ---------------------------------------------------------------------------------------------- #
-        
+            
             # Abrir ordem LONG
             if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing"] and 
             preco_atual < indicadores["EMA7"] and indicadores["EMA7"] > indicadores["EMA50"] and indicadores["RSI"] > 30 and adx > 27 and plus_di[-1] > minus_di[-1]):
-                ordem_compra = abrir_ordem_compra(symbol, leverage)
+                ordem_compra = abrir_ordem_compra(preco_atual, saldo_investido)
                 preco_momento_compra = preco_atual
                 ordem_aberta = "LONG"  
 
@@ -572,18 +456,18 @@ def run():
                     ):
                         if preco_atual <= (preco_momento_compra - stop_loss_atr):
                             mensagem_telegram = "STOPLOSS ACIONADO!"
-                            fechar_ordem(symbol)
+                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
                             ordem_aberta = None
                             atr_atual = None
                             stop_loss_atr = None
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
         # ---------------------------------------------------------------------------------------------- #
 
             #Abrir ordem SHORT
             if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing"] and 
             preco_atual > indicadores["EMA7"] and indicadores["EMA7"] < indicadores["EMA50"] and indicadores["RSI"] < 70 and adx > 27 and minus_di[-1] > plus_di[-1]): 
-                ordem_venda = abrir_ordem_venda(symbol, leverage)
+                ordem_venda = abrir_ordem_venda(preco_atual, saldo_investido)
                 preco_momento_venda = preco_atual
                 ordem_aberta = "SHORT"  
 
@@ -605,12 +489,12 @@ def run():
                         # Condição para StopLoss
                         if preco_atual >= (preco_momento_venda + stop_loss_atr):
                             mensagem_telegram = "STOPLOSS ACIONADO!"
-                            fechar_ordem(symbol)
+                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
                             ordem_aberta = None
                             atr_atual = None
                             stop_loss_atr = None
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-
+                            
 
         # ---------------------------------------------------------------------------------------------- #
 
@@ -646,12 +530,12 @@ def run():
                     ):
                         if (preco_atual >= (preco_momento_compra + take_profit_atr)) and ultimos_candle_tipos == ["Bullish Engulfing", "Bullish Engulfing"]:
                             mensagem_telegram = "Condição de VENDA por BULLISH ENGULFING atendida"
-                            fechar_ordem(symbol)
+                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
+                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
                             ordem_compra = None
                             ordem_aberta = False
                             atr_atual = None
                             take_profit_atr = None
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
         # ---------------------------------------------------------------------------------------------- #
             #TakeProfit SHORT
@@ -671,17 +555,13 @@ def run():
                     ):
                         if preco_atual <= (preco_momento_venda - take_profit_atr) and ultimos_candle_tipos == ["Bearish Engulfing", "Bearish Engulfing"]:
                             mensagem_telegram = "Condição de COMPRA por BEARISH ENGULFING atendida"
-                            fechar_ordem(symbol)
+                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
                             ordem_venda = None
                             ordem_aberta = False
                             atr_atual = None
                             take_profit_atr = None
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
 
                             
-
-
-
-
 if __name__ == "__main__":
     run()
