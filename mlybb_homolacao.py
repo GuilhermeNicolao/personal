@@ -340,9 +340,10 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
 
         quantidade = ordem_compra["quantidade"]
         valor_atual = quantidade * preco_atual
+        despesa = valor_atual * 0.008 #Taxa Taker
 
         valor_investido = ordem_compra["valor_investido"]
-        lucro_prejuizo = valor_atual - valor_investido
+        lucro_prejuizo = valor_atual - valor_investido - despesa
 
         saldo_usdt += lucro_prejuizo
 
@@ -358,9 +359,10 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
 
         quantidade = ordem_venda["quantidade"]
         valor_atual = quantidade * preco_atual
+        despesa = valor_atual * 0.008 #Taxa Taker
 
         valor_investido = ordem_venda["valor_investido"]
-        lucro_prejuizo = valor_investido - valor_atual
+        lucro_prejuizo = valor_investido - valor_atual - despesa
         saldo_usdt += lucro_prejuizo
 
         saldo_investido = saldo_usdt * leverage
@@ -382,6 +384,7 @@ def run():
     print(f"Saldo inicial com leverage aplicado: ${saldo_investido:.2f} USD")
     print("Iniciando ...\n")
 
+    atr = None
     adx = None
     plus_di = None
     minus_di = None
@@ -390,14 +393,17 @@ def run():
     preco_momento_compra = None
     preco_momento_venda = None
     ultimos_candle_tipos = []
-    ordem_aberta = False 
+    ordem_aberta = None
     take_profit_atr = None
     stop_loss_atr = None
     atr_atual = None
 
+    ultimo_verificado = time.time()
+    intervalo_verificacao = 15 * 60 #15min  
 
     while True:
         
+
         # Captura o preço em M1
         preco_info = precos_zerosegundo(symbol="BTCUSDT", interval="1m")
         preco_atual = preco_info["price"]
@@ -431,8 +437,11 @@ def run():
             atr = calcular_atr(data, period=14)
             print(f"ATR: {atr:.2f}\n")
 
+
         # ---------------------------------------------------------------------------------------------- #
-            
+
+        if time.time() - ultimo_verificado >= intervalo_verificacao: #Espera os 15 minutos para o ADX e ATR serem calibrados para então buscar por oportunidades de compra/venda
+
             # Abrir ordem LONG
             if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing"] and 
             preco_atual < indicadores["EMA7"] and indicadores["EMA7"] > indicadores["EMA50"] and indicadores["RSI"] > 30 and adx > 27 and plus_di[-1] > minus_di[-1]):
@@ -565,3 +574,8 @@ def run():
                             
 if __name__ == "__main__":
     run()
+
+
+    #TAXA MAKER: 0,02%
+    #TAXA TAKER: 0,04%
+    #Pode abaixar se rolar negociações todos os dias ...
