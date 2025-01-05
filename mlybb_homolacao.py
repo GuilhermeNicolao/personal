@@ -57,12 +57,12 @@ def precos_zerosegundo(symbol="BTCUSDT", interval="1m"):
         # Horário atual
         current_time = datetime.now()
         
-        # Verificamos se estamos no segundo 58 (Candle fecha perto do segundo 57,58)
+        # Verificamos se estamos no segundo 58 (Candle fecha perto do segundo 58/59)
         if current_time.second == 58:
-            # Chamada à API para obter o preço
+            time.sleep(2)  # Aguarda até o fechamento do candle
             result = capturar_preco_binance(symbol=symbol, interval=interval)
             if result:
-                kline = result[0]
+                kline = result[-2]  # Usa o penúltimo candle (último fechado)
                 price = float(kline[4])  # Preço de fechamento
                 timestamp = int(kline[0])  # Timestamp em ms
                 readable_time = datetime.fromtimestamp(timestamp / 1000)
@@ -122,62 +122,30 @@ def capturar_identificar_candle(symbol="BTCUSDT", interval="1m"):
     return None
 
 
-# - Cálculo ADX
-def calcular_adx(data, period=14):
+# - Calcular suporte e resistencia (Utilizado no TP/SL)
+def calcular_suporte_resistencia(symbol="BTCUSDT", interval="1m", limit=15):
 
-    high = np.array([float(d[2]) for d in data])  # Preço máximo
-    low = np.array([float(d[3]) for d in data])   # Preço mínimo
-    close = np.array([float(d[4]) for d in data])  # Preço de fechamento
+    dados = capturar_preco_binance(symbol, interval, limit)
 
-    # Calculando o movimento direcional (DM)
-    plus_di = high[1:] - high[:-1]
-    minus_di = low[:-1] - low[1:]
+    if not dados:
+        print("Erro ao obter dados da API. Não foi possível calcular suporte e resistência.")
+        return None, None
 
-    # Condição para considerar DM positivo e negativo
-    plus_di[plus_di < 0] = 0
-    minus_di[minus_di < 0] = 0
+    # Extraindo valores de alta (high) e baixa (low) dos candles
+    try:
+        valores_high = [float(candle[2]) for candle in dados]
+        valores_low = [float(candle[3]) for candle in dados]
 
-    # Calculando o True Range (TR) para o ADX
-    tr1 = high[1:] - low[1:]
-    tr2 = np.abs(high[1:] - close[:-1])
-    tr3 = np.abs(low[1:] - close[:-1])
+        # Calculando suporte e resistência
+        suporte = min(valores_low)
+        resistencia = max(valores_high)
 
-    tr = np.maximum(np.maximum(tr1, tr2), tr3)
+        return suporte, resistencia
 
-    # Suavização de DM e TR
-    plus_di_smooth = pd.Series(plus_di).rolling(window=period).sum().values
-    minus_di_smooth = pd.Series(minus_di).rolling(window=period).sum().values
-    tr_smooth = pd.Series(tr).rolling(window=period).sum().values
-
-    # Calculando os índices de direção (+DI e -DI)
-    plus_di = 100 * (plus_di_smooth / tr_smooth)
-    minus_di = 100 * (minus_di_smooth / tr_smooth)
-
-    # Calculando o ADX (média móvel do índice de direção)
-    dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di)
-    adx = pd.Series(dx).rolling(window=period).mean().values
-
-    # Retornando o ADX e os valores de +DM e -DM
-    return adx[-1], plus_di[-1], minus_di[-1]
-
-
-# - Cálculo ATR (Average True Range)
-def calcular_atr(data, period=14):
-    high = np.array([float(d[2]) for d in data])  # Preço máximo
-    low = np.array([float(d[3]) for d in data])   # Preço mínimo
-    close = np.array([float(d[4]) for d in data])  # Preço de fechamento
-
-    # Calculando o True Range (TR)
-    tr1 = high[1:] - low[1:]
-    tr2 = np.abs(high[1:] - close[:-1])
-    tr3 = np.abs(low[1:] - close[:-1])
+    except (IndexError, ValueError) as e:
+        print(f"Erro ao processar dados da API: {e}")
+        return None, None
     
-    tr = np.maximum(np.maximum(tr1, tr2), tr3)
-
-    # Calculando o ATR (média móvel do TR)
-    atr = pd.Series(tr).rolling(window=period).mean().values
-    return atr[-1]  # Retorna o ATR mais recente
-
 
 # - Cálculo EMA
 def calcular_ema7(prices, period):
@@ -384,22 +352,14 @@ def run():
     print(f"Saldo inicial com leverage aplicado: ${saldo_investido:.2f} USD")
     print("Iniciando ...\n")
 
-    atr = None
-    adx = None
-    plus_di = None
-    minus_di = None
+   
     ordem_compra = None
     ordem_venda = None
     preco_momento_compra = None
     preco_momento_venda = None
-    ultimos_candle_tipos = []
+    #ultimos_candle_tipos = []
     ordem_aberta = None
-    take_profit_atr = None
-    stop_loss_atr = None
-    atr_atual = None
-
-    ultimo_verificado = time.time()
-    intervalo_verificacao = 15 * 60 #15min  
+    
 
     while True:
         
@@ -410,14 +370,20 @@ def run():
 
 
         # Informa o tipo de candle
-        candle_tipo = capturar_identificar_candle(symbol="BTCUSDT", interval="1m")
-        print(f"{candle_tipo}")
+        # candle_tipo = capturar_identificar_candle(symbol="BTCUSDT", interval="1m")
+        # print(f"{candle_tipo}")
 
+
+        suporte, resistencia = calcular_suporte_resistencia(symbol="BTCUSDT", interval="5m", limit=15)
+        if suporte is not None and resistencia is not None:
+            print(f"Suporte: {suporte}, Resistência: {resistencia}")
+        else:
+            print("Não foi possível calcular os pontos de suporte e resistência.")
 
         # Atualiza a lista com os últimos dois tipos de candle
-        ultimos_candle_tipos.append(candle_tipo)
-        if len(ultimos_candle_tipos) > 2:
-            ultimos_candle_tipos.pop(0)  # Remove o mais antigo, mantendo o tamanho da lista em 2
+        # ultimos_candle_tipos.append(candle_tipo)
+        # if len(ultimos_candle_tipos) > 2:
+        #     ultimos_candle_tipos.pop(0)  # Remove o mais antigo, mantendo o tamanho da lista em 2
 
 
         # Calcula e exibe os valores de EMA7, EMA50 e RSI
@@ -427,151 +393,75 @@ def run():
 
         data = capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=30)
 
-        # Calcular ADX
-        if data:
-            adx, plus_di, minus_di = calcular_adx(data, period=14)
-            print(f"ADX: {adx:.2f}")
-
-        # Calcular ATR
-        if data:
-            atr = calcular_atr(data, period=14)
-            print(f"ATR: {atr:.2f}\n")
 
 
         # ---------------------------------------------------------------------------------------------- #
 
-        if time.time() - ultimo_verificado >= intervalo_verificacao: #Espera os 15 minutos para o ADX e ATR serem calibrados para então buscar por oportunidades de compra/venda
+        # Abrir ordem LONG
+        if (saldo_usdt > 0 and not ordem_aberta and 
+        preco_atual < indicadores["EMA7"] and indicadores["EMA7"] > indicadores["EMA50"] and indicadores["RSI"] > 30):
+            ordem_compra = abrir_ordem_compra(preco_atual, saldo_investido)
+            preco_momento_compra = preco_atual
+            suporte_momento_compra = suporte
+            suporte_sl = suporte_momento_compra * 0.995
+            take_profit = preco_momento_compra + ((preco_momento_compra - suporte_sl) * 2)  # Take Profit
+            ordem_aberta = "LONG"  
 
-            # Abrir ordem LONG
-            if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Hammer", "Bullish Engulfing"] and 
-            preco_atual < indicadores["EMA7"] and indicadores["EMA7"] > indicadores["EMA50"] and indicadores["RSI"] > 30 and adx > 27 and plus_di[-1] > minus_di[-1]):
-                ordem_compra = abrir_ordem_compra(preco_atual, saldo_investido)
-                preco_momento_compra = preco_atual
-                ordem_aberta = "LONG"  
+        #TP/SL ordem LONG
+        if ordem_aberta == "LONG":
+            if preco_atual is not None and preco_momento_compra is not None:
+                if preco_atual <= suporte_sl:
+                    mensagem_telegram = "STOPLOSS ACIONADO!"
+                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                    fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
+                    ordem_aberta = None
+                elif preco_atual >= take_profit:
+                    mensagem_telegram = "TAKE PROFIT ACIONADO!"
+                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                    fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
+                    ordem_aberta = None
 
-            #StopLoss ordem LONG
-            if ordem_aberta == "LONG":
-                atr_atual = calcular_atr(data, period=14)
-                if atr_atual is not None and not np.isnan(atr_atual):
-                    stop_loss_atr = (atr_atual * 2)
-                    
-                    if (
-                        preco_atual is not None and 
-                        preco_momento_compra is not None and 
-                        stop_loss_atr is not None and
-                        isinstance(preco_atual, (float, int)) and
-                        isinstance(preco_momento_compra, (float, int)) and
-                        isinstance(stop_loss_atr, (float, int))
-                    ):
-                        if preco_atual <= (preco_momento_compra - stop_loss_atr):
-                            mensagem_telegram = "STOPLOSS ACIONADO!"
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
-                            ordem_aberta = None
-                            atr_atual = None
-                            stop_loss_atr = None
+    # ---------------------------------------------------------------------------------------------- #
 
-        # ---------------------------------------------------------------------------------------------- #
+        #Abrir ordem SHORT
+        if (saldo_usdt > 0 and not ordem_aberta and 
+        preco_atual > indicadores["EMA7"] and indicadores["EMA7"] < indicadores["EMA50"] and indicadores["RSI"] < 70): 
+            ordem_venda = abrir_ordem_venda(preco_atual, saldo_investido)
+            preco_momento_venda = preco_atual
+            suporte_moment_venda = suporte
+            suporte_sl = suporte_moment_venda * 0.995
+            take_profit = preco_momento_venda - ((suporte_sl - preco_momento_venda) * 2)  # Take Profit
+            ordem_aberta = "SHORT"  
 
-            #Abrir ordem SHORT
-            if (saldo_usdt > 0 and not ordem_aberta and candle_tipo in ["Inverted Hammer", "Bearish Engulfing"] and 
-            preco_atual > indicadores["EMA7"] and indicadores["EMA7"] < indicadores["EMA50"] and indicadores["RSI"] < 70 and adx > 27 and minus_di[-1] > plus_di[-1]): 
-                ordem_venda = abrir_ordem_venda(preco_atual, saldo_investido)
-                preco_momento_venda = preco_atual
-                ordem_aberta = "SHORT"  
+        #StopLoss ordem SHORT
+        if ordem_aberta == "SHORT":
+            if preco_atual is not None and preco_momento_venda is not None:
+                if preco_atual >= suporte_sl:
+                    mensagem_telegram = "STOPLOSS ACIONADO!"
+                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                    fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
+                    ordem_aberta = None
+                elif preco_atual <= take_profit:
+                    mensagem_telegram = "TAKE PROFIT ACIONADO!"
+                    enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
+                    fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
+                    ordem_aberta = None
 
-            #StopLoss ordem SHORT
-            if ordem_aberta == "SHORT":
-                atr_atual = calcular_atr(data, period=14)
-                if atr_atual is not None and not np.isnan(atr_atual):
-                    stop_loss_atr = (atr_atual * 2)
-                    
-                    # Verificar se os valores são válidos
-                    if (
-                        preco_atual is not None and 
-                        preco_momento_venda is not None and 
-                        stop_loss_atr is not None and
-                        isinstance(preco_atual, (float, int)) and
-                        isinstance(preco_momento_venda, (float, int)) and
-                        isinstance(stop_loss_atr, (float, int))
-                    ):
-                        # Condição para StopLoss
-                        if preco_atual >= (preco_momento_venda + stop_loss_atr):
-                            mensagem_telegram = "STOPLOSS ACIONADO!"
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
-                            ordem_aberta = None
-                            atr_atual = None
-                            stop_loss_atr = None
-                            
+    # ---------------------------------------------------------------------------------------------- #
 
-        # ---------------------------------------------------------------------------------------------- #
+        # Verifica os últimos dois candles para condição de compra/venda
+        # tipos_de_candles = []
+        # data = capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=3)
+        # if data:
+        #     for candle_data in data:
+        #         ohlc = {
+        #             'open': float(candle_data[1]),
+        #             'high': float(candle_data[2]),
+        #             'low': float(candle_data[3]),
+        #             'close': float(candle_data[4])
+        #         }
+        #         tipos_de_candles.append(identificar_candle(ohlc))
 
-            # Verifica os últimos dois candles para condição de compra/venda
-            tipos_de_candles = []
-            data = capturar_preco_binance(symbol="BTCUSDT", interval="1m", limit=3)
-            if data:
-                for candle_data in data:
-                    ohlc = {
-                        'open': float(candle_data[1]),
-                        'high': float(candle_data[2]),
-                        'low': float(candle_data[3]),
-                        'close': float(candle_data[4])
-                    }
-                    tipos_de_candles.append(identificar_candle(ohlc))
-
-            
-        # ---------------------------------------------------------------------------------------------- #
-            # TakeProfit LONG
-            if ordem_compra is not None:
-                atr_atual = calcular_atr(data, period=14)
-                if atr_atual is not None and not np.isnan(atr_atual):
-                    take_profit_atr = (atr_atual * 3)
-                    
-                    # Verificar valores e condição
-                    if (
-                        preco_atual is not None and 
-                        preco_momento_compra is not None and 
-                        take_profit_atr is not None and
-                        isinstance(preco_atual, (float, int)) and
-                        isinstance(preco_momento_compra, (float, int)) and
-                        isinstance(take_profit_atr, (float, int))
-                    ):
-                        if (preco_atual >= (preco_momento_compra + take_profit_atr)) and ultimos_candle_tipos == ["Bullish Engulfing", "Bullish Engulfing"]:
-                            mensagem_telegram = "Condição de VENDA por BULLISH ENGULFING atendida"
-                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-                            ordem_compra = None
-                            ordem_aberta = False
-                            atr_atual = None
-                            take_profit_atr = None
-
-        # ---------------------------------------------------------------------------------------------- #
-            #TakeProfit SHORT
-            if ordem_venda is not None:
-                atr_atual = calcular_atr(data, period=14)
-                if atr_atual is not None and not np.isnan(atr_atual):
-                    take_profit_atr = (atr_atual * 3)
-                    
-                    # Verificar valores e condição
-                    if (
-                        preco_atual is not None and 
-                        preco_momento_venda is not None and 
-                        take_profit_atr is not None and
-                        isinstance(preco_atual, (float, int)) and
-                        isinstance(preco_momento_venda, (float, int)) and
-                        isinstance(take_profit_atr, (float, int))
-                    ):
-                        if preco_atual <= (preco_momento_venda - take_profit_atr) and ultimos_candle_tipos == ["Bearish Engulfing", "Bearish Engulfing"]:
-                            mensagem_telegram = "Condição de COMPRA por BEARISH ENGULFING atendida"
-                            enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
-                            fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
-                            ordem_venda = None
-                            ordem_aberta = False
-                            atr_atual = None
-                            take_profit_atr = None
-
-                            
 if __name__ == "__main__":
     run()
 
