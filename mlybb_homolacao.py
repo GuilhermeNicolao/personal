@@ -428,15 +428,16 @@ def run():
         preco_atual > indicadores["EMA7"] and indicadores["EMA7"] < indicadores["EMA50"] and indicadores["RSI"] < 70): 
             ordem_venda = abrir_ordem_venda(preco_atual, saldo_investido)
             preco_momento_venda = preco_atual
-            suporte_moment_venda = suporte
-            suporte_sl = suporte_moment_venda * 0.995
-            take_profit = preco_momento_venda - ((suporte_sl - preco_momento_venda) * 2)  # Take Profit
+            resistencia_momento_venda = resistencia
+            resistencia_sl = resistencia_momento_venda * 0.995
+            print(f"Valor do resistencia_sl no momento da ordem aberta: {resistencia_sl}")
+            take_profit = preco_momento_venda - ((preco_momento_venda - resistencia_sl) * 2)  # Take Profit
             ordem_aberta = "SHORT"  
 
-        #StopLoss ordem SHORT
+        #TP/SL ordem SHORT
         if ordem_aberta == "SHORT":
             if preco_atual is not None and preco_momento_venda is not None:
-                if preco_atual >= suporte_sl:
+                if preco_atual >= resistencia_sl:
                     mensagem_telegram = "STOPLOSS ACIONADO!"
                     enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
                     fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usdt, leverage)
@@ -466,6 +467,7 @@ if __name__ == "__main__":
     run()
 
 
-    #TAXA MAKER: 0,02%
-    #TAXA TAKER: 0,04%
-    #Pode abaixar se rolar negociações todos os dias ...
+# Preço em M1: 98890.88
+# Suporte: 98802.01, Resistência: 99158.33
+# EMA50: 98940.93 | RSI: 46.97 | EMA7: 98889.38
+# Valor do resistencia_sl no momento da ordem aberta: 98662.53835
