@@ -318,7 +318,9 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
         saldo_investido = saldo_usdt * leverage
 
         mensagem_telegram = (f"ORDEM FECHADA! \n"
-                             f"Saldo atual em USDT: {saldo_usdt:.2f}"
+                             f"Saldo atual em USDT: {saldo_usdt:.2f}\n"
+                             f"Valor atual: {valor_atual}\n"
+                             f"Despesa: {despesa}"
                              f"Lucro/Prejuízo: {lucro_prejuizo:.2f}")
         enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
         return saldo_investido
@@ -336,7 +338,9 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
         saldo_investido = saldo_usdt * leverage
 
         mensagem_telegram = (f"ORDEM FECHADA! \n"
-                             f"Saldo atual em USDT: {saldo_usdt:.2f}"
+                             f"Saldo atual em USDT: {saldo_usdt:.2f}\n"
+                             f"Valor atual: {valor_atual}\n"
+                             f"Despesa: {despesa}"
                              f"Lucro/Prejuízo: {lucro_prejuizo:.2f}")
         enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
         return saldo_investido
@@ -403,7 +407,7 @@ def run():
             ordem_compra = abrir_ordem_compra(preco_atual, saldo_investido)
             preco_momento_compra = preco_atual
             suporte_momento_compra = suporte
-            suporte_sl = suporte_momento_compra * 0.995
+            suporte_sl = suporte_momento_compra * 0.999
             take_profit = preco_momento_compra + ((preco_momento_compra - suporte_sl) * 2)  # Take Profit
             ordem_aberta = "LONG"  
 
@@ -429,9 +433,9 @@ def run():
             ordem_venda = abrir_ordem_venda(preco_atual, saldo_investido)
             preco_momento_venda = preco_atual
             resistencia_momento_venda = resistencia
-            resistencia_sl = resistencia_momento_venda * 0.995
+            resistencia_sl = resistencia_momento_venda * 0.999
             print(f"Valor do resistencia_sl no momento da ordem aberta: {resistencia_sl}")
-            take_profit = preco_momento_venda - ((preco_momento_venda - resistencia_sl) * 2)  # Take Profit
+            take_profit = preco_momento_venda + ((preco_momento_venda - resistencia_sl) * 2)  # Take Profit
             ordem_aberta = "SHORT"  
 
         #TP/SL ordem SHORT
