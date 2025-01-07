@@ -308,7 +308,7 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
 
         quantidade = ordem_compra["quantidade"]
         valor_atual = quantidade * preco_atual
-        despesa = valor_atual * 0.008 #Taxa Taker
+        despesa = (valor_atual / 10) * 0.008 #Taxa Taker
 
         valor_investido = ordem_compra["valor_investido"]
         lucro_prejuizo = valor_atual - valor_investido - despesa
@@ -471,7 +471,3 @@ if __name__ == "__main__":
     run()
 
 
-# Preço em M1: 98890.88
-# Suporte: 98802.01, Resistência: 99158.33
-# EMA50: 98940.93 | RSI: 46.97 | EMA7: 98889.38
-# Valor do resistencia_sl no momento da ordem aberta: 98662.53835
