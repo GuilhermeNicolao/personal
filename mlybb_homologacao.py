@@ -318,9 +318,7 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
         saldo_investido = saldo_usdt * leverage
 
         mensagem_telegram = (f"ORDEM FECHADA! \n"
-                             f"Saldo atual em USDT: {saldo_usdt:.2f}\n"
-                             f"Valor atual: {valor_atual}\n"
-                             f"Despesa: {despesa}"
+                             f"Saldo atual em USDT: {saldo_usdt:.2f}"
                              f"Lucro/Prejuízo: {lucro_prejuizo:.2f}")
         enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
         return saldo_investido
@@ -329,7 +327,7 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
 
         quantidade = ordem_venda["quantidade"]
         valor_atual = quantidade * preco_atual
-        despesa = valor_atual * 0.008 #Taxa Taker
+        despesa = (valor_atual / 10) * 0.008 #Taxa Taker
 
         valor_investido = ordem_venda["valor_investido"]
         lucro_prejuizo = valor_investido - valor_atual - despesa
@@ -338,9 +336,7 @@ def fechar_ordem(ordem_aberta, ordem_compra, ordem_venda, preco_atual, saldo_usd
         saldo_investido = saldo_usdt * leverage
 
         mensagem_telegram = (f"ORDEM FECHADA! \n"
-                             f"Saldo atual em USDT: {saldo_usdt:.2f}\n"
-                             f"Valor atual: {valor_atual}\n"
-                             f"Despesa: {despesa}"
+                             f"Saldo atual em USDT: {saldo_usdt:.2f}"
                              f"Lucro/Prejuízo: {lucro_prejuizo:.2f}")
         enviar_mensagem_telegram(TOKEN_TELEGRAM, CHAT_ID_TELEGRAM, mensagem_telegram)
         return saldo_investido
@@ -469,5 +465,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-
-
