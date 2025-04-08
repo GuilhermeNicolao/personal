@@ -1,0 +1,1 @@
+Welcome to my GitHub. These are all the automations I've been doing over the years. Important to say that I had never worked as a developer, I've always worked in the Financial Area but I have my passion for developing so I am always helping how I can in order to improve companies activities, procedures and even interfaces. 
